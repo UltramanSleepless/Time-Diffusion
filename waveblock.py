@@ -1,4 +1,6 @@
 #waveblock.py 该版本的位置编码是加在数据上的
+#sine:
+#Final Score:  0.17980900409276945 ± 0.02411720576408294
 import numpy as np
 import torch
 import torch.nn as nn
