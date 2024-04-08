@@ -1,6 +1,6 @@
-#waveblock.py 该版本的位置编码是加在数据上的
-#sine:
-#Final Score:  0.17980900409276945 ± 0.02411720576408294
+#residual_layers=15
+#stocks:
+#Final Score:  0.15661664392905866 ± 0.05637501709258973
 import numpy as np
 import torch
 import torch.nn as nn
@@ -82,6 +82,7 @@ class ResidualBlock(nn.Module):
     :param uncond: disable spectrogram conditional
     '''
     super().__init__()
+    # self.pos_encoder = PositionalEncoding(2*residual_channels, 24)
     self.dilated_conv = Conv1d(residual_channels, 2 * residual_channels, 3, padding=dilation, dilation=dilation)
     self.diffusion_projection = Linear(512, residual_channels)
     if not uncond: # conditional model
@@ -97,6 +98,7 @@ class ResidualBlock(nn.Module):
 
     diffusion_step = self.diffusion_projection(diffusion_step).unsqueeze(-1)
     y = x + diffusion_step
+    # y=self.pos_encoder(y)
     if self.conditioner_projection is None: # using a unconditional model
         y = self.dilated_conv(y)
     else:
@@ -137,7 +139,7 @@ class DiffWave(nn.Module):
             residual_channels,
             n_mels=1,
             dcl=10,
-            residual_layers=20,
+            residual_layers=15,
             noise_schedule=np.linspace(1e-4, 0.05, 500).tolist(),
             
             unconditional=False):
@@ -153,7 +155,7 @@ class DiffWave(nn.Module):
 
     self.residual_layers = nn.ModuleList([
         # ResidualBlock(n_mels, residual_channels, 2**(i % dcl), uncond=unconditional)
-        ResidualBlock(n_mels, 2*residual_channels, 2**(i % residual_channels), uncond=unconditional)
+        ResidualBlock(n_mels, 2*residual_channels, 2**(i % 5), uncond=unconditional)
         for i in range(residual_layers)
     ])
     self.skip_projection = Conv1d(2*residual_channels, 2*residual_channels, 1)
@@ -163,7 +165,7 @@ class DiffWave(nn.Module):
   def forward(self, audio, diffusion_step, spectrogram=None):
     # assert (spectrogram is None and self.spectrogram_upsampler is None) or \
     #        (spectrogram is not None and self.spectrogram_upsampler is not None)
-    # audio=self.pos_encoder(audio)
+    audio=self.pos_encoder(audio)
     x = audio.permute(0, 2, 1)
     x = self.input_projection(x)
     x = F.relu(x)
@@ -179,7 +181,8 @@ class DiffWave(nn.Module):
 
     x = skip / sqrt(len(self.residual_layers))
     x = self.skip_projection(x)
-    x = F.relu(x)
+    # x = F.relu(x)
+    x = F.sigmoid(x)
     x = self.output_projection(x).permute(0,2,1)
 
     return x
