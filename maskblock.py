@@ -83,7 +83,7 @@ class ResidualBlock(nn.Module):
     # self.pos_encoder = PositionalEncoding(2*residual_channels, 24)
     self.dilated_conv = Conv1d(residual_channels, 2 * residual_channels, 3, padding=dilation, dilation=dilation)
     self.diffusion_projection = Linear(512, residual_channels)
-    self.con_projection = Conv1d(int(0.5*residual_channels), 2*residual_channels, 1)
+    self.con_projection = Conv1d(int(residual_channels), 2*residual_channels,  3, padding=dilation, dilation=dilation)
     if not uncond: # conditional model
       self.conditioner_projection = Conv1d(n_mels, 2 * residual_channels, 1)
     else: # unconditional model
@@ -106,7 +106,7 @@ class ResidualBlock(nn.Module):
         y = self.dilated_conv(y)
 
     if cond_info is not None:
-      cond_info=cond_info.permute(0, 2, 1)
+      # cond_info=cond_info.permute(0, 2, 1)
       cond_info=self.con_projection(cond_info)
       y=y+cond_info
     else:
@@ -164,29 +164,63 @@ class DiffWave(nn.Module):
         ResidualBlock(n_mels, 2*residual_channels, 2**(i % 5), uncond=unconditional)
         for i in range(residual_layers)
     ])
+
+    self.reverse_residual_layers = nn.ModuleList([
+        # ResidualBlock(n_mels, residual_channels, 2**(i % dcl), uncond=unconditional)
+        ResidualBlock(n_mels, 2*residual_channels, 2**(i % 5), uncond=unconditional)
+        for i in range(residual_layers)
+    ])
+
     self.skip_projection = Conv1d(2*residual_channels, 2*residual_channels, 1)
     self.output_projection = Conv1d(2*residual_channels, residual_channels, 1)
     nn.init.zeros_(self.output_projection.weight)
 
-  def forward(self, audio, diffusion_step, cond_info,spectrogram=None):
+  def get_randmask(self, x):
+    mask = torch.ones_like(x)
+    mask[:, ::2, :] = 0  
+    reverse_mask=1-mask
+    # masked_input = x * mask
+    # reverse_mask = x * reverse_mask
+    masked_input = mask
+    reverse_mask =reverse_mask
+    return masked_input, reverse_mask
+  
+  def forward(self, audio, diffusion_step,train,spectrogram=None):
     # assert (spectrogram is None and self.spectrogram_upsampler is None) or \
     #        (spectrogram is not None and self.spectrogram_upsampler is not None)
     audio=self.pos_encoder(audio)
     x = audio.permute(0, 2, 1)
+    mask,reverse_mask=self.get_randmask(x)
     x = self.input_projection(x)
+    reverse_x = self.input_projection(reverse_x)
     x = F.relu(x)
+    reverse_x = F.relu(reverse_x)
     # cond_info=cond_info.permute(0,2,1)
     # cond_info=self.con_projection(cond_info)
     diffusion_step = self.diffusion_embedding(diffusion_step)
     # if self.spectrogram_upsampler: # use conditional model
     #   spectrogram = self.spectrogram_upsampler(spectrogram)
+    # x_start=x
 
     skip = None
     for layer in self.residual_layers:
-      x, skip_connection = layer(x, diffusion_step,cond_info, spectrogram)
+      x, skip_connection = layer(x, diffusion_step,reverse_x, spectrogram)
       skip = skip_connection if skip is None else skip_connection + skip
 
     x = skip / sqrt(len(self.residual_layers))
+
+    mskip = None
+    for layer in self.reverse_residual_layers:
+      reverse_x, mskip_connection = layer(reverse_x, diffusion_step,x, spectrogram)
+      mskip = skip_connection if mskip is None else mskip_connection + mskip
+
+    reverse_x = mskip / sqrt(len(self.residual_layers))
+
+    # x,_=self.get_randmask(x)
+    # _,reverse_x=self.get_randmask(reverse_x)
+
+    # x=(x+reverse_x)
+    x=reverse_x
     x = self.skip_projection(x)
     x = F.relu(x)
     x = self.output_projection(x).permute(0,2,1)
