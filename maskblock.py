@@ -144,7 +144,7 @@ class DiffWave(nn.Module):
             residual_channels,
             n_mels=1,
             dcl=10,
-            residual_layers=10,
+            residual_layers=20,
             noise_schedule=np.linspace(1e-4, 0.05, 500).tolist(),
             
             unconditional=False):
@@ -208,7 +208,7 @@ class DiffWave(nn.Module):
 
       skip = None
       for layer in self.residual_layers:
-        mask_x, skip_connection = layer(mask_input, diffusion_step,mask=False, spectrogram=None)
+        mask_x, skip_connection = layer(mask_input, diffusion_step,None, None)
         skip = skip_connection if skip is None else skip_connection + skip
 
       mask_x = skip / sqrt(len(self.residual_layers))
@@ -218,7 +218,7 @@ class DiffWave(nn.Module):
 
       mskip = None
       for layer in self.residual_layers:
-        reverse_x, mskip_connection = layer(res, diffusion_step,mask=False, spectrogram=None)
+        reverse_x, mskip_connection = layer(res, diffusion_step,None, None)
         mskip = skip_connection if mskip is None else mskip_connection + mskip
 
       reverse_x = mskip / sqrt(len(self.residual_layers))
@@ -232,7 +232,7 @@ class DiffWave(nn.Module):
 
       skip = None
       for layer in self.residual_layers:
-        x, skip_connection = layer(x, diffusion_step,mask=False, spectrogram=None)
+        x, skip_connection = layer(x, diffusion_step,None, None)
         skip = skip_connection if skip is None else skip_connection + skip
 
       x = skip / sqrt(len(self.residual_layers))
