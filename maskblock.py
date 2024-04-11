@@ -185,42 +185,63 @@ class DiffWave(nn.Module):
     reverse_mask =reverse_mask
     return masked_input, reverse_mask
   
+  def generate_mask_like(self,x):
+    mask_ratio=0.5
+    mask = torch.rand_like(x) < mask_ratio
+    return mask.float()
+  
   def forward(self, audio, diffusion_step,train,spectrogram=None):
     # assert (spectrogram is None and self.spectrogram_upsampler is None) or \
     #        (spectrogram is not None and self.spectrogram_upsampler is not None)
     audio=self.pos_encoder(audio)
     x = audio.permute(0, 2, 1)
-    mask,reverse_mask=self.get_randmask(x)
+    
     x = self.input_projection(x)
-    reverse_x = self.input_projection(reverse_x)
-    x = F.relu(x)
-    reverse_x = F.relu(reverse_x)
-    # cond_info=cond_info.permute(0,2,1)
-    # cond_info=self.con_projection(cond_info)
+    x = F.relu(x)# mask,reverse_mask=self.get_randmask(x)
     diffusion_step = self.diffusion_embedding(diffusion_step)
-    # if self.spectrogram_upsampler: # use conditional model
-    #   spectrogram = self.spectrogram_upsampler(spectrogram)
-    # x_start=x
+    mask_full = torch.ones_like(x)
+    mask_none = torch.zeros_like(x)
+    mask = self.generate_mask_like(x)
+    mask_input=x
+    
+    if train:
 
-    skip = None
-    for layer in self.residual_layers:
-      x, skip_connection = layer(x, diffusion_step,reverse_x, spectrogram)
-      skip = skip_connection if skip is None else skip_connection + skip
+      skip = None
+      for layer in self.residual_layers:
+        mask_x, skip_connection = layer(mask_input, diffusion_step,mask=False, spectrogram=None)
+        skip = skip_connection if skip is None else skip_connection + skip
 
-    x = skip / sqrt(len(self.residual_layers))
+      mask_x = skip / sqrt(len(self.residual_layers))
+      res=mask_x*mask+x*(1-mask)
 
-    mskip = None
-    for layer in self.reverse_residual_layers:
-      reverse_x, mskip_connection = layer(reverse_x, diffusion_step,x, spectrogram)
-      mskip = skip_connection if mskip is None else mskip_connection + mskip
 
-    reverse_x = mskip / sqrt(len(self.residual_layers))
+
+      mskip = None
+      for layer in self.residual_layers:
+        reverse_x, mskip_connection = layer(res, diffusion_step,mask=False, spectrogram=None)
+        mskip = skip_connection if mskip is None else mskip_connection + mskip
+
+      reverse_x = mskip / sqrt(len(self.residual_layers))
+
+      x=(x+reverse_x)/sqrt(2.0)
+    else:
+      # diffusion_step = self.diffusion_embedding(diffusion_step)
+      # if self.spectrogram_upsampler: # use conditional model
+      #   spectrogram = self.spectrogram_upsampler(spectrogram)
+      # x_start=x
+
+      skip = None
+      for layer in self.residual_layers:
+        x, skip_connection = layer(x, diffusion_step,mask=False, spectrogram=None)
+        skip = skip_connection if skip is None else skip_connection + skip
+
+      x = skip / sqrt(len(self.residual_layers))
 
     # x,_=self.get_randmask(x)
     # _,reverse_x=self.get_randmask(reverse_x)
 
     # x=(x+reverse_x)
-    x=reverse_x
+   
     x = self.skip_projection(x)
     x = F.relu(x)
     x = self.output_projection(x).permute(0,2,1)
