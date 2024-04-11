@@ -221,9 +221,10 @@ class DiffWave(nn.Module):
         reverse_x, mskip_connection = layer(res, diffusion_step,None, None)
         mskip = skip_connection if mskip is None else mskip_connection + mskip
 
-      reverse_x = mskip / sqrt(len(self.residual_layers))
+      x = mskip / sqrt(len(self.residual_layers))
 
-      x=(x+reverse_x)/sqrt(2.0)
+      # x=(x+reverse_x)/sqrt(2.0)
+      # x = skip / sqrt(len(self.residual_layers))
     else:
       # diffusion_step = self.diffusion_embedding(diffusion_step)
       # if self.spectrogram_upsampler: # use conditional model
@@ -236,6 +237,8 @@ class DiffWave(nn.Module):
         skip = skip_connection if skip is None else skip_connection + skip
 
       x = skip / sqrt(len(self.residual_layers))
+
+      
 
     # x,_=self.get_randmask(x)
     # _,reverse_x=self.get_randmask(reverse_x)
